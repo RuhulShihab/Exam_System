@@ -1,0 +1,16 @@
+<?php
+require_once __DIR__.'/../config/db.php'; require_once __DIR__.'/../includes/auth.php'; require_role($pdo,'teacher','login.php');
+$baseUrl='../'; require_once __DIR__.'/../includes/header.php';
+$teacherId=current_user()['id'];
+$stmt=$pdo->prepare('SELECT * FROM exams WHERE teacher_id=? ORDER BY id DESC');$stmt->execute([$teacherId]);$exams=$stmt->fetchAll();
+$examCount=count($exams);$subStmt=$pdo->prepare('SELECT COUNT(*) FROM submissions s JOIN exams e ON e.id=s.exam_id WHERE e.teacher_id=?');$subStmt->execute([$teacherId]);$subs=(int)$subStmt->fetchColumn();
+$qStmt=$pdo->prepare('SELECT COUNT(*) FROM questions q JOIN exams e ON e.id=q.exam_id WHERE e.teacher_id=?');$qStmt->execute([$teacherId]);$questions=(int)$qStmt->fetchColumn();
+$avgStmt=$pdo->prepare('SELECT COALESCE(AVG(CASE WHEN s.total>0 THEN s.score*100.0/s.total END),0) FROM submissions s JOIN exams e ON e.id=s.exam_id WHERE e.teacher_id=?');$avgStmt->execute([$teacherId]);$avg=(float)$avgStmt->fetchColumn();
+function fmt_schedule($start,$end){$p=[];if($start)$p[]=date('d M, H:i',$start);if($end)$p[]='→ '.date('d M, H:i',$end);return implode(' ',$p);}
+?>
+<?php include __DIR__.'/_nav.php'; ?>
+<div class="card" style="background:linear-gradient(135deg,#0f172a,#4338ca);color:#fff;border:0"><div style="color:#c7d2fe;font-weight:700">TEACHER WORKSPACE</div><h2 style="font-size:30px;margin:4px 0">Hello, <?=htmlspecialchars(current_user()['name'])?> 👋</h2><p style="margin:0;color:#dbeafe">Create engaging exams, manage your question bank and analyze student performance.</p></div>
+<div class="stat-grid"><div class="stat-box"><div class="num"><?=$examCount?></div><div class="label">📝 My Exams</div></div><div class="stat-box"><div class="num"><?=$questions?></div><div class="label">❓ Questions</div></div><div class="stat-box"><div class="num"><?=$subs?></div><div class="label">🎯 Submissions</div></div><div class="stat-box"><div class="num"><?=number_format($avg,1)?>%</div><div class="label">📈 Average Score</div></div></div>
+<div class="row"><a class="btn-primary" href="create_exam.php">＋ Create New Exam</a><a class="btn-ghost" href="bank.php">▣ Question Bank</a><a class="btn-ghost" href="analytics.php">📊 Analytics</a><a class="btn-ghost" href="../student/leaderboard.php">🏆 Leaderboard</a></div>
+<div class="card"><h3>Your Exams</h3><?php if(!$exams):?><p class="muted">No exams created yet.</p><?php else: foreach($exams as $e):$sched=fmt_schedule($e['start_at']??null,$e['end_at']??null);?><div class="exam-list-item"><div><div style="font-weight:800;font-size:15px"><?=htmlspecialchars($e['title'])?></div><div class="muted">Code <span class="code-tag small"><?=htmlspecialchars($e['code'])?></span> · <?=$e['duration_minutes']?> minutes <?php if($sched):?>· <?=$sched?><?php endif;?></div></div><div class="actions-cell"><a class="btn-ghost" href="results.php?code=<?=urlencode($e['code'])?>">Results</a><a class="btn-ghost" href="edit_exam.php?id=<?=$e['id']?>">Edit</a><form method="post" action="exam_action.php" onsubmit="return confirm('Delete this exam?');"><?=csrf_field()?><input type="hidden" name="exam_id" value="<?=$e['id']?>"><input type="hidden" name="action" value="delete"><button class="btn-danger">Delete</button></form></div></div><?php endforeach;endif;?></div>
+<?php require_once __DIR__.'/../includes/footer.php'; ?>

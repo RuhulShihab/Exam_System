@@ -1,0 +1,135 @@
+<?php
+require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_role($pdo, 'teacher', 'login.php');
+
+$teacherId = current_user()['id'];
+$examId = (int)($_GET['id'] ?? 0);
+
+$stmt = $pdo->prepare('SELECT * FROM exams WHERE id = ? AND teacher_id = ?');
+$stmt->execute([$examId, $teacherId]);
+$exam = $stmt->fetch();
+if (!$exam) {
+    header('Location: dashboard.php');
+    exit;
+}
+
+$qStmt = $pdo->prepare('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC');
+$qStmt->execute([$examId]);
+$questions = $qStmt->fetchAll();
+
+$bankStmt = $pdo->prepare('SELECT * FROM question_bank WHERE teacher_id = ? ORDER BY id DESC');
+$bankStmt->execute([$teacherId]);
+$bank = $bankStmt->fetchAll();
+
+function fmt_dt_local(?int $ts): string
+{
+    return $ts ? date('Y-m-d\TH:i', $ts) : '';
+}
+
+$baseUrl = '../';
+require_once __DIR__ . '/../includes/header.php';
+$error = $_GET['error'] ?? '';
+?>
+<p><a class="link-btn" href="dashboard.php">&larr; <?= htmlspecialchars(t('back_home')) ?></a></p>
+
+<form method="post" action="update_exam.php" id="examForm">
+    <?= csrf_field() ?>
+    <input type="hidden" name="exam_id" value="<?= (int)$exam['id'] ?>">
+    <div class="card">
+        <h2><?= htmlspecialchars(t('edit_exam_title')) ?></h2>
+        <label><?= htmlspecialchars(t('exam_name_label')) ?></label>
+        <input type="text" name="title" value="<?= htmlspecialchars($exam['title']) ?>" required>
+        <label><?= htmlspecialchars(t('duration_label')) ?></label>
+        <input type="number" name="duration" min="1" value="<?= (int)$exam['duration_minutes'] ?>" required>
+        <label><?= htmlspecialchars(t('exam_start_label')) ?></label>
+        <input type="datetime-local" name="start_at" value="<?= htmlspecialchars(fmt_dt_local($exam['start_at'] ?? null)) ?>">
+        <label><?= htmlspecialchars(t('exam_end_label')) ?></label>
+        <input type="datetime-local" name="end_at" value="<?= htmlspecialchars(fmt_dt_local($exam['end_at'] ?? null)) ?>">
+        <p class="muted small"><?= htmlspecialchars(t('exam_schedule_note')) ?></p>
+    </div>
+
+    <?php if ($bank): ?>
+    <div class="card">
+        <h3><?= htmlspecialchars(t('bank_insert_title')) ?></h3>
+        <p class="muted small"><?= htmlspecialchars(t('bank_insert_note')) ?></p>
+        <div class="bank-list">
+            <?php foreach ($bank as $b): ?>
+                <label class="bank-item">
+                    <input type="checkbox" class="bank-check" value="<?= (int)$b['id'] ?>">
+                    <?= htmlspecialchars(substr($b['question_text'], 0, 80) . (strlen($b['question_text']) > 80 ? '...' : '')) ?>
+                </label>
+            <?php endforeach; ?>
+        </div>
+        <button type="button" class="btn-ghost" id="insert-bank-btn"><?= htmlspecialchars(t('bank_insert_btn')) ?></button>
+    </div>
+    <?php endif; ?>
+
+    <div class="card">
+        <h3><?= htmlspecialchars(t('questions_label')) ?></h3>
+        <div id="q-container"></div>
+        <button type="button" class="btn-ghost" id="add-q"><?= htmlspecialchars(t('add_question_btn')) ?></button>
+    </div>
+
+    <?php if ($error === 'missing'): ?>
+        <p class="err-text"><?= htmlspecialchars(t('err_missing')) ?></p>
+    <?php endif; ?>
+
+    <button type="submit" class="btn-primary full"><?= htmlspecialchars(t('save_changes_btn')) ?></button>
+</form>
+
+<div class="card">
+    <form method="post" action="exam_action.php" onsubmit="return confirm('<?= htmlspecialchars(t('confirm_delete_exam'), ENT_QUOTES) ?>');">
+        <?= csrf_field() ?>
+        <input type="hidden" name="exam_id" value="<?= (int)$exam['id'] ?>">
+        <input type="hidden" name="action" value="delete">
+        <button type="submit" class="btn-danger"><?= htmlspecialchars(t('action_delete')) ?> <?= htmlspecialchars(t('this_exam_label')) ?></button>
+    </form>
+</div>
+
+<template id="q-template">
+    <div class="q-block">
+        <div class="q-num"></div>
+        <textarea name="q_text[]" required placeholder="<?= htmlspecialchars(t('question_placeholder')) ?>"></textarea>
+        <div class="row" style="align-items:center; margin-bottom:6px;">
+            <input type="radio" value="0" checked>
+            <input type="text" name="q_opt1[]" placeholder="<?= htmlspecialchars(t('option_placeholder_prefix')) ?> 1" required style="flex:1; margin-bottom:0;">
+        </div>
+        <div class="row" style="align-items:center; margin-bottom:6px;">
+            <input type="radio" value="1">
+            <input type="text" name="q_opt2[]" placeholder="<?= htmlspecialchars(t('option_placeholder_prefix')) ?> 2" required style="flex:1; margin-bottom:0;">
+        </div>
+        <div class="row" style="align-items:center; margin-bottom:6px;">
+            <input type="radio" value="2">
+            <input type="text" name="q_opt3[]" placeholder="<?= htmlspecialchars(t('option_placeholder_prefix')) ?> 3" required style="flex:1; margin-bottom:0;">
+        </div>
+        <div class="row" style="align-items:center; margin-bottom:10px;">
+            <input type="radio" value="3">
+            <input type="text" name="q_opt4[]" placeholder="<?= htmlspecialchars(t('option_placeholder_prefix')) ?> 4" required style="flex:1; margin-bottom:0;">
+        </div>
+        <button type="button" class="link-btn remove-q"><?= htmlspecialchars(t('remove_question')) ?></button>
+    </div>
+</template>
+
+<script>
+window.QUESTION_LABEL = <?= json_encode(t('question_label_prefix')) ?>;
+window.SKIP_INITIAL_QUESTION = true;
+window.EXISTING_QUESTIONS = <?= json_encode(array_map(function ($q) {
+    return [
+        'text' => $q['question_text'], 'opt1' => $q['opt1'], 'opt2' => $q['opt2'],
+        'opt3' => $q['opt3'], 'opt4' => $q['opt4'], 'correct' => $q['correct_index'],
+    ];
+}, $questions)) ?>;
+window.BANK_QUESTIONS = <?= json_encode(array_reduce($bank, function ($carry, $b) {
+    $carry[$b['id']] = [
+        'text' => $b['question_text'], 'opt1' => $b['opt1'], 'opt2' => $b['opt2'],
+        'opt3' => $b['opt3'], 'opt4' => $b['opt4'], 'correct' => $b['correct_index'],
+    ];
+    return $carry;
+}, [])) ?>;
+</script>
+<script src="../assets/exam_create.js"></script>
+<script src="../assets/exam_bank_insert.js"></script>
+<script src="../assets/exam_edit_prefill.js"></script>
+
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>

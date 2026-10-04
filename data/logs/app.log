@@ -1,0 +1,4 @@
+[14-Sep-2026 13:05:04 Asia/Dhaka] PHP Fatal error:  Uncaught Error: Call to undefined function t() in C:\wamp64\www\exam_system\teacher\forgot_password.php:27
+Stack trace:
+#0 {main}
+  thrown in C:\wamp64\www\exam_system\teacher\forgot_password.php on line 27
